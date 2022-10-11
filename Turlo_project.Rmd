@@ -1,0 +1,1013 @@
+---
+title: "**Turlo Proteomics Project**"
+author: "Kerry Ramsbottom"
+output: html_document
+---
+
+```{r,include = FALSE,message = FALSE,warning = FALSE}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(pheatmap)
+library(cowplot)
+
+data<-read.csv("Initial_file_transfer/All_LFQ_filtered_forCBF.csv")
+data_t<-t(data)
+```
+
+Data Overview
+===
+Normalisation of metadata groups
+---
+```{r,echo = FALSE}
+#| fig-cap: Fig1. Boxplots of Age by Tissue/Sex
+#| fig-width: 11
+#| fig-height: 9
+p1<-ggplot(data, aes(Tissue, Age, fill=factor(Sex)))+geom_boxplot()+geom_jitter(color="black", size=0.6, alpha=0.9)+
+  theme_cowplot()
+p1
+save_plot(filename = "figures/Boxplot.png",plot = p1,base_height = 8,base_width = 11, bg="white")
+```
+```{r,echo = FALSE}
+#| fig-cap: Fig2. Violin of Age by Tissue/Sex
+#| fig-width: 11
+#| fig-height: 9
+p2<-ggplot(data, aes(Tissue, Age, fill=factor(Sex)))+geom_violin()+
+  theme_cowplot()
+p2
+save_plot(filename = "figures/Violin.png",plot = p2,base_height = 8,base_width = 11, bg="white")
+```
+
+```{r,echo = FALSE,warning = FALSE}
+#| fig-cap: Fig3. Distribution of log protein intensity
+#| fig-width: 11
+#| fig-height: 9
+data_temp<-pivot_longer(data, cols=5:1637,names_to="Prot",values_to="Int")
+data_temp$Log_Int<-log10(data_temp$Int)
+p3<-ggplot(data_temp, aes(Log_Int, color=Sex))+geom_density()+facet_wrap(~Tissue)
+p3
+save_plot(filename = "figures/Prot_int.png",plot = p3,base_height = 8,base_width = 11, bg="white")
+```
+Missing Data
+===
+```{r,echo = FALSE}
+#| fig-cap: Fig4. Heatmap of missing values, red shows protein present, blue shows protein absent
+#| fig-width: 11
+#| fig-height: 9
+
+data$name<-paste(data$ID,data$Tissue,data$Age,data$Sex, sep="_")
+
+mot_col<-dplyr::select(data,c("Tissue","Age","Sex"))
+rownames(mot_col)<-data$name
+
+data_heat<-dplyr::select(data,-c("ID","Tissue","Age","Sex"))
+rownames(data_heat)<-data_heat$name
+data_heat<-dplyr::select(data_heat,-c("name"))
+data_heat[is.na(data_heat)]<-0
+data_heat[data_heat>0]<-1
+
+heatmap<-pheatmap::pheatmap(as.matrix(t(data_heat)),show_rownames = FALSE, annotation_col=mot_col, cluster_cols=F)
+save_plot(filename = "figures/Heatmap.png",plot = heatmap,base_height = 8,base_width = 11, bg="white", dpi=300)
+```
+Filter out proteins >30% missing across samples
+---
+```{r,echo = FALSE}
+#| fig-cap: Fig5. Heatmap of missing values, filtering those with >30% missing, red shows protein present, blue shows protein absent
+#| fig-width: 11
+#| fig-height: 9
+sum_prot=data.frame(value=apply(data_heat,2,sum))
+sum_prot$ID=rownames(sum_prot)
+sum_prot$proportion<-1-(sum_prot$value/30)
+
+sum_data_filtered<-sum_prot%>% filter(sum_prot$proportion<0.30)
+
+filtered_heat<-dplyr::select(data,-c("ID","Tissue","Age","Sex"))
+col_filter<-as.list(row.names(sum_data_filtered))
+col_filter<-append(col_filter,"name")
+filtered_heat<-filtered_heat[,(names(filtered_heat) %in% col_filter)]
+rownames(filtered_heat)<-filtered_heat$name
+filtered_heat<-dplyr::select(filtered_heat,-c("name"))
+
+filtered_heat[is.na(filtered_heat)]<-0
+filtered_heat[filtered_heat>0]<-1
+heatmap2<-pheatmap::pheatmap(as.matrix(t(filtered_heat)),show_rownames = FALSE, annotation_col=mot_col, cluster_cols=F)
+
+save_plot(filename = "figures/Heatmap_filtered30.png",plot = heatmap2,base_height = 8,base_width = 11, bg="white", dpi=300)
+```
+```{r,echo = FALSE,include = FALSE,message = FALSE,warning = FALSE}
+library(DEP)
+library(purrr)
+library(SummarizedExperiment)
+library(tidyverse)
+library(mice)
+library(VIM)
+```
+
+```{r,echo = FALSE, warning =FALSE}
+data<-read.csv("Initial_file_transfer/All_LFQ_filtered_forCBF.csv")
+data$name<-paste(data$Tissue,data$Age,data$Sex, sep="_")
+data<-data %>% relocate(name, .before=ID)
+data_t<-as.data.frame(t(dplyr::select(data,-c("ID","Tissue","Age","Sex","name"))))
+colnames(data_t)<-data$ID
+data_t$name<-row.names(data_t)
+data_t<-data_t %>% relocate(name, .before=A1)
+data_t<-data_t %>% dplyr::mutate(ID = row_number())
+data_t<-data_t %>% relocate(ID, .after=name)
+
+# Generate experimental design
+experimental_design <- as.data.frame(dplyr::select(data,c("ID","name")))
+names(experimental_design)[names(experimental_design) == "ID"] <- "label"
+names(experimental_design)[names(experimental_design) == "name"] <- "condition"
+#experimental_design$replicate<-1
+experimental_design<-experimental_design %>% 
+  tibble::as_tibble() %>% 
+  group_by(condition) %>% 
+  dplyr::mutate(replicate = row_number())
+
+# Generate a SummarizedExperiment object
+sim_unique_names <- make_unique(data_t, "name", "ID", delim = ";")
+se <- make_se(sim_unique_names, 3:32, experimental_design)
+# Plot a barplot of the protein quantification overlap between samples
+plot_frequency(se)
+# No filtering
+no_filter <- se
+
+# Filter for proteins that are quantified in at least 70% of the samples. 
+frac_filtered <- filter_proteins(se, "fraction", min = 0.7)
+
+# Scale and variance stabilize
+no_filter_norm <- normalize_vsn(se)
+frac_filtered_norm <- normalize_vsn(frac_filtered)
+
+saveRDS(frac_filtered_norm,"30%filtered_no_imp.rds")
+```
+
+
+```{r,echo = FALSE, warning =FALSE, message=FALSE}
+#Function - %missing data - summary >5% threshold - remove?
+frac_filtered_norm_df<-as.data.frame(assay(frac_filtered_norm))
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+missing_sample<-data.frame(apply(frac_filtered_norm_df,2,pMiss))
+missing_sample
+length(row.names(subset(missing_sample, missing_sample$apply.frac_filtered_norm_df..2..pMiss.>5)))
+
+list_mnar<-row.names(subset(missing_sample, missing_sample$apply.frac_filtered_norm_df..2..pMiss.>10))
+data_mnar<-frac_filtered_norm_df[,list_mnar]
+data_mnar_long <- data_mnar %>%                          # Apply pivot_longer function
+  pivot_longer(colnames(data_mnar)) %>% 
+  as.data.frame()
+ggp1 <- ggplot(data_mnar_long, aes(x = value)) +    # Draw each column as histogram
+  geom_histogram() + 
+  facet_wrap(~ name, scales = "free")
+ggp1
+save_plot(filename = "figures/Hist_mnar.png",plot = ggp1,base_height = 8,base_width = 11, bg="white", dpi=300)
+```
+Imputation - samples
+---
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+# SummarizedExperiment to MSnSet object conversion
+sample_specific_imputation <- frac_filtered_norm
+MSnSet <- as(sample_specific_imputation, "MSnSet")
+
+# Impute differently for two sets of samples
+MSnSet_imputed2 <- MSnbase::impute(MSnSet[, 1:23], method = "knn")
+MSnSet_imputed3 <- MSnbase::impute(MSnSet[, 24:30], method = "zero")
+
+# Combine into the SummarizedExperiment object
+assay(sample_specific_imputation, withDimnames=FALSE) <- cbind( 
+  MSnbase::exprs(MSnSet_imputed2), 
+  MSnbase::exprs(MSnSet_imputed3))
+
+saveRDS(sample_specific_imputation,"30%filtered_sample_imp.rds")
+
+#Annotate data with imputation method
+data$imputation<-"knn"
+data$imputation[match(gsub(" ",".",data$name),substr(list_mnar,1,nchar(list_mnar)-2))]<-"zero"
+```
+
+Imputation - proteins
+---
+```{r,echo = FALSE,message=FALSE}
+# Extract protein names with missing values 
+# in all replicates of at least one condition
+
+proteins_MNAR <- get_df_long(frac_filtered_norm) %>%
+  group_by(name, str_split_fixed(condition, "_", 2)[,1]) %>%
+  summarize(NAs = mean(is.na(intensity)) * 100) %>% 
+  filter(NAs>30) %>% 
+  pull(name) %>% 
+  unique()
+
+
+# Get a logical vector
+proteins_MNAR <- names(frac_filtered_norm) %in% proteins_MNAR
+
+# Perform a mixed imputation
+mixed_imputation_prot <- impute(
+  frac_filtered_norm, 
+  fun = "mixed",
+  randna = !proteins_MNAR, # we have to define MAR which is the opposite of MNAR
+  mar = "knn", # imputation function for MAR
+  mnar = "zero") # imputation function for MNAR
+imp_plot<-plot_imputation(no_filter_norm, sample_specific_imputation, mixed_imputation_prot)
+save_plot(filename = "figures/Imputation.png",plot = imp_plot,base_height = 8,base_width = 11, bg="white", dpi=300)
+imp_plot
+
+saveRDS(mixed_imputation_prot,"30%filtered_prot_imp.rds")
+```
+
+PCA Analysis
+===
+```{r,echo = FALSE,include = FALSE,message = FALSE,warning = FALSE}
+library(factoextra)
+library(rpgm)
+library(reshape2)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(clusterProfiler)
+library(NanoStringNCTools)
+library(GeomxTools)
+library(GeoMxWorkflows)
+library(gplots)
+library(Rtsne)
+library(writexl)
+library(patchwork)
+```
+
+filtered for 30% missingness, imputed to zero -sample specific
+---
+```{r,echo = FALSE,include = FALSE}
+frac_filtered_norm_imp<-as.data.frame(assay(sample_specific_imputation))
+pca <-prcomp(t(frac_filtered_norm_imp), scale=TRUE)
+pca_scores <- as.data.frame(pca$x)
+pca_load <- as.data.frame(pca$rotation)
+
+p1 <- ggplot(pca_scores, aes(x=PC1, y=PC2, colour = data$Tissue, shape=data$Sex, size=data$Age)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + 
+  labs(colour = "Tissue", shape = "Sex", size="Age") +
+  ggtitle("Sample specific imputation")+ 
+  geom_text(aes(label = data$imputation), check_overlap = TRUE)
+
+p3 <- fviz_eig(pca) + theme_cowplot() + labs(title="",
+                                                 x ="Principal components", y = "% Variance Explained")
+
+p4 <- ggplot(pca_scores, aes(x=PC1, y=PC2, colour = data$Tissue, shape=data$Sex)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + 
+  labs(colour = "Tissue", shape = "Sex")+ 
+  geom_text(aes(label = data$imputation), check_overlap = TRUE)
+
+pcaPlot2 <- plot_grid(p4,p3,ncol = 1,labels = "AUTO")
+pcaPlot2
+
+
+get_r2 <- function(x, y) {
+  stopifnot(length(x) == length(y))
+  model <- lm(y ~ x)
+  stats <- summary(model)
+  return(stats$adj.r.squared)
+}
+# Selection of covariates 
+covariates <- data[,c("Tissue","Sex","Age")]
+# Extract first 8 PCs
+pcs <- pca_scores[1:8]
+# Generate the data
+pc_correlation <- matrix(NA, nrow = ncol(covariates), ncol = ncol(pcs),
+                         dimnames = list(colnames(covariates), colnames(pcs)))
+for (cov in colnames(covariates)) {
+  for (pc in colnames(pcs)) {
+    pc_correlation[cov, pc] <- get_r2(covariates[, cov], pcs[, pc])
+  }
+}
+# Plot
+heatmap <- pheatmap(as.matrix(pc_correlation),color=colorRampPalette(c('white','red'))(20))
+
+#seperate by tissue - PCA on age
+frac_filtered_norm_imp<-as.data.frame(assay(sample_specific_imputation))
+
+adipose_list<-grepl("Adipose", colnames(frac_filtered_norm_imp))
+
+pca_adipose <-prcomp(t(frac_filtered_norm_imp[adipose_list]), scale=TRUE)
+pca_scores_adipose <- as.data.frame(pca_adipose$x)
+
+pca_scores_adipose$age<-cut(as.numeric(stringr::str_split_fixed(rownames(pca_scores_adipose), "_", 3)[,2]), breaks=c(0,5,10,15,20,Inf), labels=c("0-5","6-10","11-15","15-20","20+"))
+
+p18 <- ggplot(pca_scores_adipose, aes(x=PC1, y=PC2, colour=age)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca_adipose)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca_adipose)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + 
+  labs(colour = "Age") +
+  ggtitle("Sample specific imputation - Adipose")
+
+pca_bm <-prcomp(t(frac_filtered_norm_imp[!adipose_list]), scale=TRUE)
+pca_scores_bm <- as.data.frame(pca_bm$x)
+
+pca_scores_bm$age<-cut(as.numeric(stringr::str_split_fixed(rownames(pca_scores_bm), "_", 3)[,2]), breaks=c(0,5,10,15,20,Inf), labels=c("0-5","6-10","11-15","15-20","20+"))
+
+p19 <- ggplot(pca_scores_bm, aes(x=PC1, y=PC2, colour=age)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca_bm)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca_bm)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + 
+  labs(colour = "Age") +
+  ggtitle("Sample specific imputation - Bone Marrow")
+
+pca_fig_tissue<-p18+p19+ plot_layout(guides = "collect")
+save_plot(filename = "figures/PCA_comparison_tissue_age.png",plot = pca_fig_tissue,base_height = 8,base_width = 11, bg="white", dpi=300)
+pca_fig_tissue
+
+```
+
+filtered for 30% missingness, imputed to zero - prot specific
+---
+```{r,echo = FALSE}
+frac_filtered_norm_imp_prot<-as.data.frame(assay(mixed_imputation_prot))
+pca_p <-prcomp(t(frac_filtered_norm_imp_prot), scale=TRUE)
+pca_scores_p <- as.data.frame(pca_p$x)
+pca_load_p <- as.data.frame(pca_p$rotation)
+
+p11 <- ggplot(pca_scores_p, aes(x=PC1, y=PC2, colour = data$Tissue, shape=data$Sex, size=data$Age)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca_p)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca_p)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + 
+  labs(colour = "Tissue", shape = "Sex", size="Age")+
+  ggtitle("Protein specific imputation")
+p13 <- fviz_eig(pca_p) + theme_cowplot() + labs(title="",
+                                                 x ="Principal components", y = "% Variance Explained")
+
+
+p14 <- ggplot(pca_scores_p, aes(x=PC1, y=PC2, colour = data$Tissue, shape=data$Sex)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca_p)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca_p)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + 
+  labs(colour = "Tissue", shape = "Sex")
+
+pcaPlotp2 <- plot_grid(p14,p13,ncol = 1,labels = "AUTO")
+pcaPlotp2
+
+# Selection of covariates 
+covariates_p <- data[,c("Tissue","Sex","Age")]
+# Extract first 8 PCs
+pcs_p <- pca_scores_p[1:8]
+# Generate the data
+pc_correlation_p <- matrix(NA, nrow = ncol(covariates_p), ncol = ncol(pcs_p),
+                         dimnames = list(colnames(covariates_p), colnames(pcs_p)))
+for (cov in colnames(covariates_p)) {
+  for (pc in colnames(pcs_p)) {
+    pc_correlation_p[cov, pc] <- get_r2(covariates_p[, cov], pcs[, pc])
+  }
+}
+# Plot
+heatmap_p <- pheatmap(as.matrix(pc_correlation_p),color=colorRampPalette(c('white','red'))(20))
+```
+filtered for 30% missingness, no imputation - remove missing values
+---
+```{r,echo = FALSE}
+frac_filtered_norm_no_na<-as.data.frame(assay(frac_filtered_norm))
+frac_filtered_norm_no_na<-na.omit(frac_filtered_norm_no_na)
+pca2 <-prcomp(t(frac_filtered_norm_no_na), scale=TRUE)
+pca_scores2 <- as.data.frame(pca2$x)
+pca_load2 <- as.data.frame(pca2$rotation)
+
+p6 <- ggplot(pca_scores2, aes(x=PC1, y=PC2, colour = data$Tissue, shape=data$Sex, size=data$Age)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca2)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca2)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + 
+  labs(colour = "Tissue", shape = "Sex", size="Age")+
+  ggtitle("No imputation")
+p7 <- ggplot(pca_load2, aes(x=PC1, y=PC2)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca2)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca2)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + geom_text(aes(label=row.names(pca_load2)), size=3)
+p8 <- fviz_eig(pca2) + theme_cowplot() + labs(title="",
+                                             x ="Principal components", y = "% Variance Explained")
+pcaPlot3 <- plot_grid(p6,p8,ncol = 1,labels = "AUTO")
+pcaPlot3
+
+p9 <- ggplot(pca_scores2, aes(x=PC1, y=PC2, colour = data$Tissue, shape=data$Sex)) + 
+  geom_point() + 
+  xlab(paste0('PC1: ', round(as.numeric(summary(pca2)$importance[2,1]*100)), '% expl.var')) + 
+  ylab(paste0('PC2: ', round(as.numeric(summary(pca2)$importance[2,2]*100)), '% expl.var')) + 
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot() + 
+  labs(colour = "Tissue", shape = "Sex")
+
+# Selection of covariates 
+covariates2 <- data[,c("Tissue","Sex","Age")]
+# Extract first 8 PCs
+pcs2 <- pca_scores2[1:8]
+# Generate the data
+pc_correlation2 <- matrix(NA, nrow = ncol(covariates2), ncol = ncol(pcs2),
+                         dimnames = list(colnames(covariates2), colnames(pcs2)))
+for (cov in colnames(covariates2)) {
+  for (pc in colnames(pcs2)) {
+    pc_correlation2[cov, pc] <- get_r2(covariates2[, cov], pcs2[, pc])
+  }
+}
+# Plot
+heatmap2 <- pheatmap(as.matrix(pc_correlation2),color=colorRampPalette(c('white','red'))(20))
+```
+Imputation PCA comparison
+---
+```{r,echo = FALSE}
+pca_fig<-p1+p11+p6+ plot_layout(guides = "collect")
+save_plot(filename = "figures/PCA_comparison.png",plot = pca_fig,base_height = 8,base_width = 11, bg="white", dpi=300)
+pca_fig
+```
+
+DTW clustering 
+===
+```{r,echo = FALSE, include=FALSE, warning=FALSE, message=FALSE}
+library(dtwclust)
+library(dendextend)
+library(dplyr)
+```
+30% missing, sample imputed
+---
+```{r,error = TRUE,echo = FALSE}
+#age as time
+#mean prot abundance taken for duplicates - standardised values
+frac_filtered_norm_imp_time<-as.data.frame(assay(sample_specific_imputation))
+col_names<-names(frac_filtered_norm_imp_time)
+col_names_time<-c()
+for (n in col_names){
+  col_names_time<-c(col_names_time,sapply(str_split(n,"_",3),`[`,2))
+}
+names(frac_filtered_norm_imp_time) <- col_names_time
+#remove duplicates here
+cn = colnames(frac_filtered_norm_imp_time)
+frac_filtered_norm_imp_time<-data.frame(sapply(unique(cn), function(g) rowMeans(frac_filtered_norm_imp_time[,cn==g,drop=FALSE])))
+colnames(frac_filtered_norm_imp_time) <- gsub("^X", "",  colnames(frac_filtered_norm_imp_time))
+#sort by age
+frac_filtered_norm_imp_time<-frac_filtered_norm_imp_time[order(as.numeric(names(frac_filtered_norm_imp_time)))]
+
+#standardise protein level
+prot_norm<-as.data.frame(t(frac_filtered_norm_imp_time))
+prot_norm_t<-as.data.frame(t(prot_norm))
+sample_norm<-BBmisc::normalize(prot_norm_t, method="standardize")
+
+#saveRDS(time_norm_t,"time_norm_t.rds")
+
+#cluster proteins
+cluster_no<-8L
+clust.hier<-tsclust(prot_norm_t, type = "h", k = cluster_no, distance = "dtw")
+{plot(clust.hier)
+rect.hclust(clust.hier, k=cluster_no, border=1:8)}
+
+plot(clust.hier, type="sc")
+cut_avg<-cutree(clust.hier, k=cluster_no)
+
+seeds_df_cl<-mutate(prot_norm_t, cluster=cut_avg)
+prot_cl<-as.data.frame(seeds_df_cl$cluster)
+write.csv(prot_cl,"Figures/Clustering/DTW_sample_imp_clusters.csv")
+```
+30% missing, protein imputed
+---
+```{r,echo = FALSE}
+#age as time
+#mean prot abundance taken for duplicates - standardised values
+frac_filtered_norm_imp_time<-as.data.frame(assay(mixed_imputation_prot))
+col_names<-names(frac_filtered_norm_imp_time)
+col_names_time<-c()
+for (n in col_names){
+  col_names_time<-c(col_names_time,sapply(str_split(n,"_",3),`[`,2))
+}
+names(frac_filtered_norm_imp_time) <- col_names_time
+#remove duplicates here
+cn = colnames(frac_filtered_norm_imp_time)
+frac_filtered_norm_imp_time<-data.frame(sapply(unique(cn), function(g) rowMeans(frac_filtered_norm_imp_time[,cn==g,drop=FALSE])))
+colnames(frac_filtered_norm_imp_time) <- gsub("^X", "",  colnames(frac_filtered_norm_imp_time))
+#sort by age
+frac_filtered_norm_imp_time<-frac_filtered_norm_imp_time[order(as.numeric(names(frac_filtered_norm_imp_time)))]
+
+#standardise protein level
+prot_norm<-as.data.frame(t(frac_filtered_norm_imp_time))
+prot_norm_t<-as.data.frame(t(prot_norm))
+prot_norm_t<-BBmisc::normalize(prot_norm_t, method="standardize")
+
+#saveRDS(time_norm_t,"time_norm_t.rds")
+
+#cluster proteins
+cluster_no<-8L
+clust.hier<-tsclust(prot_norm_t, type = "h", k = cluster_no, distance = "dtw")
+{plot(clust.hier)
+rect.hclust(clust.hier, k=cluster_no, border=1:8)}
+plot(clust.hier, type="sc")
+cut_avg<-cutree(clust.hier, k=cluster_no)
+
+seeds_df_cl<-mutate(prot_norm_t, cluster=cut_avg)
+prot_cl<-as.data.frame(seeds_df_cl$cluster)
+write.csv(prot_cl,"Figures/Clustering/DTW_prot_imp_clusters.csv")
+```
+30% missing, no imputation
+---
+```{r,echo = FALSE}
+#age as time
+#mean prot abundance taken for duplicates - standardised values
+frac_filtered_norm_time<-as.data.frame(assay(frac_filtered_norm))
+col_names<-names(frac_filtered_norm_time)
+col_names_time<-c()
+for (n in col_names){
+  col_names_time<-c(col_names_time,sapply(str_split(n,"_",3),`[`,2))
+}
+names(frac_filtered_norm_time) <- col_names_time
+#remove duplicates here
+cn = colnames(frac_filtered_norm_time)
+frac_filtered_norm_time<-data.frame(sapply(unique(cn), function(g) rowMeans(frac_filtered_norm_time[,cn==g,drop=FALSE])))
+colnames(frac_filtered_norm_time) <- gsub("^X", "",  colnames(frac_filtered_norm_time))
+#sort by age
+frac_filtered_norm_time<-frac_filtered_norm_time[order(as.numeric(names(frac_filtered_norm_time)))]
+
+#standardise protein level
+prot_norm<-as.data.frame(t(frac_filtered_norm_time))
+prot_norm_t<-as.data.frame(t(prot_norm))
+prot_norm_t<-na.omit(prot_norm_t)
+norm<-BBmisc::normalize(prot_norm_t, method="standardize")
+
+#saveRDS(time_norm_t,"time_norm_t.rds")
+
+#cluster proteins
+cluster_no<-8L
+clust.hier<-tsclust(prot_norm_t, type = "h", k = cluster_no, distance = "dtw")
+{plot(clust.hier)
+rect.hclust(clust.hier, k=cluster_no, border=1:8)}
+plot(clust.hier, type="sc")
+cut_avg<-cutree(clust.hier, k=cluster_no)
+
+seeds_df_cl<-mutate(prot_norm_t, cluster=cut_avg)
+prot_cl<-as.data.frame(seeds_df_cl$cluster)
+write.csv(prot_cl,"Figures/Clustering/DTW_sample_imp_clusters.csv")
+```
+
+Fuzzy clustering
+===
+```{r,error=TRUE,echo = FALSE,include=FALSE,message=FALSE }
+#mfuzz - find soft clusters in short time course data
+library(Mfuzz)
+library(ggplot2)
+library(cowplot)
+set.seed(123)
+```
+30%missing, sample imputed
+---
+```{r,error=TRUE,echo = FALSE}
+#read in the normalised data - these are relative values not TPMs
+expData <- t(sample_norm)
+timeLabels <- rownames(expData)
+expData <- ExpressionSet(as.matrix(t(expData)))
+
+#estimate the fuzziness parameter
+m1 <- mestimate(expData)
+
+#get the soft clusters - c defines the number
+#how do best define how many clusters to do? Better enrichment or just distinct shapes?
+cl <- mfuzz(expData,c=20,m=m1)
+
+#cluster sizes
+#cl$size
+
+#plot
+mfuzz.plot(eset = expData,cl,min.mem = 0.5,mfrow = c(4,4),time.labels=timeLabels)
+
+#get the genes in each cluster - cluster with the max membership value for each gene
+membership <- acore(expData,cl,0.5)
+membership_all<-bind_rows(membership, .id = "Cluster")
+write.csv(membership_all,"Figures/Clustering/MFuzz_sample_imp_clusters.csv")
+
+#plot the profile of a gene of interest or best fitting gene - could do one for each cluster
+#up then flat
+chosenCluster <- membership[[2]] 
+maxGene <- as.character(chosenCluster[which.max(chosenCluster$MEM.SHIP),"NAME"])
+
+#function to plot the a gene profile from the expression data
+plotGeneProfile <- function(expressionData,geneName){
+  #get the gene expression profile
+  geneProfile <- exprs(expressionData)[geneName,]
+  
+  #make into a dataframe
+  geneProfile <- stack(geneProfile)[,2:1]
+  colnames(geneProfile) <- c("Time","Expression")
+  
+  ggplot(geneProfile,aes(x = Time,y=Expression,group=1)) + geom_point() + geom_line() + cowplot::theme_cowplot()
+  
+}
+
+plotGeneProfile(expData,maxGene)
+```
+
+
+30%missing, protein imputed
+---
+```{r,error=TRUE,echo = FALSE}
+#read in the normalised data - these are relative values not TPMs
+expData <- as.data.frame(t(prot_norm_t))
+timeLabels <- rownames(expData)
+expData <- ExpressionSet(as.matrix(t(expData)))
+
+#estimate the fuzziness parameter
+m1 <- mestimate(expData)
+
+#get the soft clusters - c defines the number
+#how do best define how many clusters to do? Better enrichment or just distinct shapes?
+cl <- mfuzz(expData,c=20,m=m1)
+
+#cluster sizes
+#cl$size
+
+#plot
+mfuzz.plot(eset = expData,cl,min.mem = 0.5,mfrow = c(4,4),time.labels=timeLabels)
+
+#get the genes in each cluster - cluster with the max membership value for each gene
+membership <- acore(expData,cl,0.5)
+membership_all<-bind_rows(membership, .id = "Cluster")
+write.csv(membership_all,"Figures/Clustering/MFuzz_protein_imp_clusters.csv")
+
+#plot the profile of a gene of interest or best fitting gene - could do one for each cluster
+#up then flat
+chosenCluster <- membership[[2]] 
+maxGene <- as.character(chosenCluster[which.max(chosenCluster$MEM.SHIP),"NAME"])
+
+#function to plot the a gene profile from the expression data
+plotGeneProfile <- function(expressionData,geneName){
+  #get the gene expression profile
+  geneProfile <- exprs(expressionData)[geneName,]
+  
+  #make into a dataframe
+  geneProfile <- stack(geneProfile)[,2:1]
+  colnames(geneProfile) <- c("Time","Expression")
+  
+  ggplot(geneProfile,aes(x = Time,y=Expression,group=1)) + geom_point() + geom_line() + cowplot::theme_cowplot()
+  
+}
+
+plotGeneProfile(expData,maxGene)
+```
+
+30%missing, no imputation
+---
+```{r,error=TRUE,echo = FALSE}
+#read in the normalised data - these are relative values not TPMs
+expData <- norm
+expData<-t(expData)
+timeLabels <- rownames(expData)
+expData <- ExpressionSet(as.matrix(t(expData)))
+
+#estimate the fuzziness parameter
+m1 <- mestimate(expData)
+
+#get the soft clusters - c defines the number
+#how do best define how many clusters to do? Better enrichment or just distinct shapes?
+cl <- mfuzz(expData,c=20,m=m1)
+
+#cluster sizes
+#cl$size
+
+#plot
+mfuzz.plot(eset = expData,cl,min.mem = 0.5,mfrow = c(4,4),time.labels=timeLabels)
+
+#get the genes in each cluster - cluster with the max membership value for each gene
+membership <- acore(expData,cl,0.5)
+membership_all<-bind_rows(membership, .id = "Cluster")
+write.csv(membership_all,"Figures/Clustering/MFuzz_no_imp_clusters.csv")
+
+#plot the profile of a gene of interest or best fitting gene - could do one for each cluster
+#up then flat
+chosenCluster <- membership[[2]] 
+maxGene <- as.character(chosenCluster[which.max(chosenCluster$MEM.SHIP),"NAME"])
+
+plotGeneProfile(expData,maxGene)
+```
+
+
+NMF - 30% missing, no imputation
+===
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+library(NMF)
+library(stringr)
+
+#Aim - unsupervised clustering to identify an heterogeneity in the secreted proteins
+
+#read in the non imputed data as an example
+expData <- frac_filtered_norm
+
+#extract metadata for later
+col_names<-colnames(expData)
+tissue <- word(col_names,1,sep = "_")
+age <- as.numeric(word(col_names,2,sep = "_"))
+sex <- word(col_names,3,sep = "_")
+
+
+#extract the abundance data - remove NA containing rows
+frac_filtered_norm_imp_time<-na.omit(as.data.frame(assay(expData)))
+
+#run non-smooth NMF with 2-6 clusters - 100 runs each initially
+#nsNMF method might result in more sparse meta-genes which could be more intepretable?
+estim.r <- nmf(frac_filtered_norm_imp_time, 2:6, nrun=200, seed=123,method = "lee")
+
+#plot cluster stability statistics to help choose the k
+#sometimes a little tricky to choose
+plot(estim.r)
+
+#k=4
+res <- nmf(frac_filtered_norm_imp_time, 4, nrun=200, seed=123,method = "lee")
+
+summary(res)
+
+#plot the consensus clustering along side the metadata
+dev.new()
+consensusmap(res,annCol=data.frame("age"=age,"tissue"=tissue,"sex"=sex),tracks = c("basis:", "consensus:", "silhouette:"))
+dev.off()
+#test each cluster for association with the known variables? i.e are the clusters associated with tissue/age/sex?
+
+#plot the meta-genes and meta-samples
+coefmap(res)
+basismap(res)
+```
+
+GSEA
+---
+```{r,warning = FALSE, echo = FALSE, include=FALSE, error=FALSE}
+library(dplyr)
+library(tidyr)
+library(pRoloc)
+library(factoextra)
+library(rpgm)
+library(reshape2)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(clusterProfiler)
+library(NanoStringNCTools)
+library(GeomxTools)
+library(GeoMxWorkflows)
+library(gplots)
+library(Rtsne)
+library(writexl)
+library(biomaRt)
+
+source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/uniprot_dat_reading.R')
+source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/mapping_with_db_ortho.R')
+source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/mapping_with_files.R')
+source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/uniprot_selected_term_types.R')
+source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/utils.R')
+source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/enrichment.R')
+```
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE, iclude=FALSE}
+#get the contribution of genes to each cluster - can do GSEA with GO
+geneRankings <- as.data.frame(basis(res))
+terms <- map_using_uniprot_files(input_id = 'UniProtKB-AC', input_values = rownames(geneRankings), output_id = 'GO')
+terms$names <- goIdToTerm(terms$GO, names = TRUE, keepNA = TRUE)
+
+V1<-geneRankings$V1[order(-geneRankings$V1)]
+names(V1)<-rownames(geneRankings[order(-geneRankings$V1),])
+
+ensembl <- useMart('ensembl', dataset="ecaballus_gene_ensembl")
+annotation <- getBM(attributes=c("uniprotsptrembl", "uniprot_gn_symbol"), filters="uniprotsptrembl", values=proteins, mart=ensembl)
+
+top <- data.frame(uniprot=names(V1)[1:5])
+top$cluster<-rep(c("Cluster1"),each=5)
+  
+gsea_results <- GSEA(geneList =V1,
+               exponent = 1,
+               minGSSize = 5,
+               maxGSSize = 500,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "BH",
+               TERM2GENE = terms[c(2,1)], 
+               TERM2NAME = terms[c(2,3)],
+               by = "fgsea")
+dotplot(gsea_results)
+save_plot(filename = "figures/Clustering/NMF_v1_GSEA_dot.png",plot = dotplot(gsea_results),base_height = 8,base_width = 11, bg="white", dpi=300)
+
+V2<-geneRankings$V2[order(-geneRankings$V2)]
+names(V2)<-rownames(geneRankings[order(-geneRankings$V2),])
+top_temp <- data.frame(uniprot=names(V2)[1:5])
+top_temp$cluster<-rep(c("Cluster2"),each=5)
+top<-rbind(top,top_temp)
+
+gsea_results_v2 <- GSEA(geneList =V2,
+               exponent = 1,
+               minGSSize = 5,
+               maxGSSize = 500,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "BH",
+               TERM2GENE = terms[c(2,1)], 
+               TERM2NAME = terms[c(2,3)],
+               by = "fgsea")
+dotplot(gsea_results_v2)
+save_plot(filename = "figures/Clustering/NMF_v2_GSEA_dot.png",plot = dotplot(gsea_results_v2),base_height = 8,base_width = 11, bg="white", dpi=300)
+
+V3<-geneRankings$V3[order(-geneRankings$V3)]
+names(V3)<-rownames(geneRankings[order(-geneRankings$V3),])
+top_temp <- data.frame(uniprot=names(V3)[1:5])
+top_temp$cluster<-rep(c("Cluster3"),each=5)
+top<-rbind(top,top_temp)
+
+gsea_results_v3 <- GSEA(geneList =V3,
+               exponent = 1,
+               minGSSize = 5,
+               maxGSSize = 500,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "BH",
+               TERM2GENE = terms[c(2,1)], 
+               TERM2NAME = terms[c(2,3)],
+               by = "fgsea")
+dotplot(gsea_results_v3)
+save_plot(filename = "figures/Clustering/NMF_v3_GSEA_dot.png",plot = dotplot(gsea_results_v3),base_height = 8,base_width = 11, bg="white", dpi=300)
+
+V4<-geneRankings$V4[order(-geneRankings$V4)]
+names(V4)<-rownames(geneRankings[order(-geneRankings$V4),])
+top_temp <- data.frame(uniprot=names(V4)[1:5])
+top_temp$cluster<-rep(c("Cluster4"),each=5)
+top<-rbind(top,top_temp)
+
+gsea_results_v4 <- GSEA(geneList =V4,
+               exponent = 1,
+               minGSSize = 5,
+               maxGSSize = 500,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "BH",
+               TERM2GENE = terms[c(2,1)], 
+               TERM2NAME = terms[c(2,3)],
+               by = "fgsea")
+dotplot(gsea_results_v4)
+save_plot(filename = "figures/Clustering/NMF_v4_GSEA_dot.png",plot = dotplot(gsea_results_v4),base_height = 8,base_width = 11, bg="white", dpi=300)
+
+
+top <- merge(top,annotation,by.x="uniprot",by.y="uniprotsptrembl",all.x="TRUE")
+knitr::kable(top, caption="Top 5 gene names per cluster")
+```
+
+Test association of clusters with variables
+---
+```{r, echo=FALSE}
+clusters<-as.data.frame(NMF::predict(res, what="consensus"))
+colnames(clusters) <- "cluster_no"
+clusters$cluster_no<-as.numeric(clusters$cluster_no)
+clusters$sample<- rownames(clusters)
+clusters$sample<- substr(rownames(clusters),1,nchar(rownames(clusters))-2)
+clusters$age <- as.numeric(sapply(str_split(clusters$sample,"_",3),"[",2))
+clusters$sex <- word(clusters$sample,3,sep = "_")
+clusters$tissue <- word(clusters$sample,1,sep = "_")
+
+p1<-ggplot(clusters, aes(y=cluster_no, x=age, colour = tissue, shape=sex)) + 
+  geom_point(size=4) +  
+  scale_colour_brewer(palette = "Set1") +
+  theme_cowplot(font_size = 16) +
+  labs(colour = "Tissue", shape = "Sex") +
+  ggtitle("Association of clusters with variables")
+p1
+save_plot(filename = "figures/Clustering/NMF_cluster_age.png",plot = p1,base_height = 8,base_width = 11, bg="white", dpi=300)
+
+group_by(clusters, cluster_no) %>%
+  summarise(
+    count = n(),
+    mean = mean(age, na.rm = TRUE),
+    sd = sd(age, na.rm = TRUE),
+    median = median(age, na.rm = TRUE),
+    IQR = IQR(age, na.rm = TRUE)
+  )
+
+p2<-ggplot(clusters, aes(cluster_no, age, fill=factor(cluster_no)))+geom_boxplot()+geom_jitter(color="black", size=0.6, alpha=0.9)+
+  theme_cowplot(font_size = 16)
+p2
+save_plot(filename = "figures/Clustering/NMF_cluster_meta.png",plot = p2,base_height = 8,base_width = 11, bg="white", dpi=300)
+```
+
+```{r}
+
+kruskal.test(age ~ cluster_no, data = clusters)
+
+pairwise.wilcox.test(clusters$age, clusters$cluster_no,
+                 p.adjust.method = "BH")
+```
+
+glmnet - supervised model - 30% missing, no imputation
+===
+```{r, error=TRUE,echo = FALSE,message=FALSE, warning=FALSE}
+library(glmnet)
+library(tidyverse)
+library(caret)
+library(biomaRt)
+library(plyr)
+
+set.seed(123)
+
+expData <- frac_filtered_norm
+dat <- as.data.frame(t(na.omit(assay(expData))))
+
+col_names <- colnames(expData)
+age <- as.numeric(sapply(str_split(col_names,"_",3),"[",2))
+sex <- word(col_names,3,sep = "_")
+tissue <- word(col_names,1,sep = "_")
+
+#the higher age samples are adipose so might be tricky!
+#try adding variables to the model
+#lattice::stripplot(age~tissue)
+
+#add the variables to as factors
+dat$sex <- as.factor(sex)
+dat$tissue <- as.factor(tissue)
+
+#encode the factors as numeric dummy variables
+dat <- model.matrix( ~ ., dat)
+
+all_proteins<-data.frame("uniprot"="","rank"="","uniprot_gn_symbol"="")
+prot_summary<-data.frame("run_no"="","cor"="","rmse"="","prot_count"="")
+
+for (i in 1:50){
+  i
+  #split into train and test - keep the test data separate
+  trainIndex <- createDataPartition(age, p = .6, 
+                                    list = FALSE, 
+                                    times = 1)
+  trainDat <- dat[trainIndex,]
+  trainAge <- age[trainIndex]
+  testDat <- dat[-trainIndex,]
+  testAge <- age[-trainIndex]
+  
+  #set up the training parameters
+  trainControl <- trainControl(method = "repeatedcv",
+                               number=3,repeats = 50)
+  
+  #lambda controls how many coefficients are set to zero
+  lambda_grid <- seq(0,2.5,0.05)
+  # alpha_grid <- seq(0,1,0.05)
+  searchGrid <- expand.grid(.alpha = 1, .lambda = lambda_grid)
+  
+  #search for the best parameters
+  my_train <- train(x = trainDat, y=trainAge, method = "glmnet",trControl = trainControl,tuneGrid=searchGrid,metric="Rsquared")
+  
+  #train using the best values
+  fit <- glmnet::glmnet(x = trainDat, trainAge, trControl = control, tuneGrid = tunegrid,alpha = my_train$bestTune$alpha,lambda=my_train$bestTune$lambda,family = "gaussian")
+  
+  #try predicting on the test samples
+  pred <- predict(fit,testDat)
+  #plot(testAge,pred)
+  
+  cor<-cor(testAge,pred)
+  rmse<-RMSE(testAge,pred)
+  
+  #get the proteins that are included in the model
+  c <- as.matrix(coef(fit,my_train$bestTune$lambda))
+  c <- c[ order(abs(c),decreasing = TRUE),,drop=FALSE]
+  inds <- which(c[,1]!=0)
+  proteins <- rownames(c)[inds]
+  proteins <- proteins[!proteins %in% '(Intercept)']
+  
+  #get the gene symbol of the protein
+  ensembl <- useMart('ensembl', dataset="ecaballus_gene_ensembl")
+  annotation <- getBM(attributes=c("uniprotsptrembl", "uniprot_gn_symbol"), filters="uniprotsptrembl", values=proteins, mart=ensembl)
+  proteins <- data.frame(uniprot=proteins,rank=1:length(proteins))
+  proteins <- merge(proteins,annotation,by.x="uniprot",by.y="uniprotsptrembl",all.x="TRUE")
+  proteins <- proteins[ order(proteins$rank),]
+  all_proteins<-rbind(all_proteins,proteins)
+  prot_summary_temp<-data.frame("run_no"=i,"cor"=cor[1],"rmse"=rmse,"prot_count"=length(proteins$uniprot))
+  prot_summary<-rbind(prot_summary,prot_summary_temp)
+}
+all_proteins<-ddply(all_proteins,.(uniprot,uniprot_gn_symbol),nrow)
+
+prot_summary
+all_proteins
+
+prot_summary<-drop_na(reshape::melt(prot_summary, id.vars="run_no", measure.vars=c("cor","rmse","prot_count")))
+
+prot_summary[prot_summary==""]<-NA
+prot_summary<-na.omit(prot_summary)
+
+#function to plot the a gene profile from the expression data
+plotGeneProfile <- function(geneName,expressionData,age){
+  #get the gene expression profile
+  geneProfile <- expressionData[,geneName]
+  
+  #make into a dataframe
+  geneProfile <- stack(geneProfile)[,2:1]
+  colnames(geneProfile) <- c("Age","Expression")
+  geneProfile$Age <- as.numeric(word(geneProfile$Age,2,sep="_"))
+
+  ggplot(geneProfile,aes(x = Age, y = Expression)) + geom_point() + cowplot::theme_cowplot() + ggtitle(geneName)
+  
+}
+
+#example plots of protein abundance vs age
+#plotGeneProfile(proteins[1,"uniprot"],trainDat,trainAge)
+#plotGeneProfile(proteins[1,"uniprot"],testDat,testAge)
+```
