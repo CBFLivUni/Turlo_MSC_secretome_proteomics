@@ -11,13 +11,13 @@ library(dplyr)
 library(pheatmap)
 library(cowplot)
 
-data<-read.csv("Initial_file_transfer/All_LFQ_filtered_forCBF.csv")
+data<-read.csv("Data/All_LFQ_filtered_forCBF.csv")
 data_t<-t(data)
 ```
 
 Data Overview
 ===
-Normalisation of metadata groups
+Normalisation of metadata groups 
 ---
 ```{r,echo = FALSE}
 #| fig-cap: Fig1. Boxplots of Age by Tissue/Sex
@@ -69,7 +69,8 @@ data_heat[data_heat>0]<-1
 heatmap<-pheatmap::pheatmap(as.matrix(t(data_heat)),show_rownames = FALSE, annotation_col=mot_col, cluster_cols=F)
 save_plot(filename = "figures/Heatmap.png",plot = heatmap,base_height = 8,base_width = 11, bg="white", dpi=300)
 ```
-Filter out proteins >30% missing across samples
+
+Filter out any proteins with more than 30% missing across samples
 ---
 ```{r,echo = FALSE}
 #| fig-cap: Fig5. Heatmap of missing values, filtering those with >30% missing, red shows protein present, blue shows protein absent
@@ -104,7 +105,7 @@ library(VIM)
 ```
 
 ```{r,echo = FALSE, warning =FALSE}
-data<-read.csv("Initial_file_transfer/All_LFQ_filtered_forCBF.csv")
+data<-read.csv("Data/All_LFQ_filtered_forCBF.csv")
 data$name<-paste(data$Tissue,data$Age,data$Sex, sep="_")
 data<-data %>% relocate(name, .before=ID)
 data_t<-as.data.frame(t(dplyr::select(data,-c("ID","Tissue","Age","Sex","name"))))
@@ -141,7 +142,7 @@ frac_filtered_norm <- normalize_vsn(frac_filtered)
 
 saveRDS(frac_filtered_norm,"30%filtered_no_imp.rds")
 ```
-
+The plot below shows the distribution of the samples considered missing not at random to ensure these are not poor quality or too close to the limit of detection, causing the missing values.
 
 ```{r,echo = FALSE, warning =FALSE, message=FALSE}
 #Function - %missing data - summary >5% threshold - remove?
@@ -162,7 +163,7 @@ ggp1 <- ggplot(data_mnar_long, aes(x = value)) +    # Draw each column as histog
 ggp1
 save_plot(filename = "figures/Hist_mnar.png",plot = ggp1,base_height = 8,base_width = 11, bg="white", dpi=300)
 ```
-Imputation - samples
+Imputation - sample based
 ---
 ```{r message=FALSE, warning=FALSE, echo=FALSE}
 # SummarizedExperiment to MSnSet object conversion
@@ -185,7 +186,7 @@ data$imputation<-"knn"
 data$imputation[match(gsub(" ",".",data$name),substr(list_mnar,1,nchar(list_mnar)-2))]<-"zero"
 ```
 
-Imputation - proteins
+Imputation - protein based
 ---
 ```{r,echo = FALSE,message=FALSE}
 # Extract protein names with missing values 
@@ -220,17 +221,6 @@ PCA Analysis
 ===
 ```{r,echo = FALSE,include = FALSE,message = FALSE,warning = FALSE}
 library(factoextra)
-library(rpgm)
-library(reshape2)
-library(org.Hs.eg.db)
-library(AnnotationDbi)
-library(clusterProfiler)
-library(NanoStringNCTools)
-library(GeomxTools)
-library(GeoMxWorkflows)
-library(gplots)
-library(Rtsne)
-library(writexl)
 library(patchwork)
 ```
 
@@ -477,7 +467,7 @@ cut_avg<-cutree(clust.hier, k=cluster_no)
 
 seeds_df_cl<-mutate(prot_norm_t, cluster=cut_avg)
 prot_cl<-as.data.frame(seeds_df_cl$cluster)
-write.csv(prot_cl,"Figures/Clustering/DTW_sample_imp_clusters.csv")
+write.csv(prot_cl,"figures/Clustering/DTW_sample_imp_clusters.csv")
 ```
 30% missing, protein imputed
 ---
@@ -515,7 +505,7 @@ cut_avg<-cutree(clust.hier, k=cluster_no)
 
 seeds_df_cl<-mutate(prot_norm_t, cluster=cut_avg)
 prot_cl<-as.data.frame(seeds_df_cl$cluster)
-write.csv(prot_cl,"Figures/Clustering/DTW_prot_imp_clusters.csv")
+write.csv(prot_cl,"figures/Clustering/DTW_prot_imp_clusters.csv")
 ```
 30% missing, no imputation
 ---
@@ -554,10 +544,10 @@ cut_avg<-cutree(clust.hier, k=cluster_no)
 
 seeds_df_cl<-mutate(prot_norm_t, cluster=cut_avg)
 prot_cl<-as.data.frame(seeds_df_cl$cluster)
-write.csv(prot_cl,"Figures/Clustering/DTW_sample_imp_clusters.csv")
+write.csv(prot_cl,"figures/Clustering/DTW_sample_imp_clusters.csv")
 ```
 
-Fuzzy clustering
+Mfuzz Fuzzy clustering 
 ===
 ```{r,error=TRUE,echo = FALSE,include=FALSE,message=FALSE }
 #mfuzz - find soft clusters in short time course data
@@ -578,7 +568,6 @@ expData <- ExpressionSet(as.matrix(t(expData)))
 m1 <- mestimate(expData)
 
 #get the soft clusters - c defines the number
-#how do best define how many clusters to do? Better enrichment or just distinct shapes?
 cl <- mfuzz(expData,c=20,m=m1)
 
 #cluster sizes
@@ -590,10 +579,9 @@ mfuzz.plot(eset = expData,cl,min.mem = 0.5,mfrow = c(4,4),time.labels=timeLabels
 #get the genes in each cluster - cluster with the max membership value for each gene
 membership <- acore(expData,cl,0.5)
 membership_all<-bind_rows(membership, .id = "Cluster")
-write.csv(membership_all,"Figures/Clustering/MFuzz_sample_imp_clusters.csv")
+write.csv(membership_all,"figures/Clustering/MFuzz_sample_imp_clusters.csv")
 
 #plot the profile of a gene of interest or best fitting gene - could do one for each cluster
-#up then flat
 chosenCluster <- membership[[2]] 
 maxGene <- as.character(chosenCluster[which.max(chosenCluster$MEM.SHIP),"NAME"])
 
@@ -626,7 +614,6 @@ expData <- ExpressionSet(as.matrix(t(expData)))
 m1 <- mestimate(expData)
 
 #get the soft clusters - c defines the number
-#how do best define how many clusters to do? Better enrichment or just distinct shapes?
 cl <- mfuzz(expData,c=20,m=m1)
 
 #cluster sizes
@@ -638,25 +625,11 @@ mfuzz.plot(eset = expData,cl,min.mem = 0.5,mfrow = c(4,4),time.labels=timeLabels
 #get the genes in each cluster - cluster with the max membership value for each gene
 membership <- acore(expData,cl,0.5)
 membership_all<-bind_rows(membership, .id = "Cluster")
-write.csv(membership_all,"Figures/Clustering/MFuzz_protein_imp_clusters.csv")
+write.csv(membership_all,"figures/Clustering/MFuzz_protein_imp_clusters.csv")
 
 #plot the profile of a gene of interest or best fitting gene - could do one for each cluster
-#up then flat
 chosenCluster <- membership[[2]] 
 maxGene <- as.character(chosenCluster[which.max(chosenCluster$MEM.SHIP),"NAME"])
-
-#function to plot the a gene profile from the expression data
-plotGeneProfile <- function(expressionData,geneName){
-  #get the gene expression profile
-  geneProfile <- exprs(expressionData)[geneName,]
-  
-  #make into a dataframe
-  geneProfile <- stack(geneProfile)[,2:1]
-  colnames(geneProfile) <- c("Time","Expression")
-  
-  ggplot(geneProfile,aes(x = Time,y=Expression,group=1)) + geom_point() + geom_line() + cowplot::theme_cowplot()
-  
-}
 
 plotGeneProfile(expData,maxGene)
 ```
@@ -674,7 +647,6 @@ expData <- ExpressionSet(as.matrix(t(expData)))
 m1 <- mestimate(expData)
 
 #get the soft clusters - c defines the number
-#how do best define how many clusters to do? Better enrichment or just distinct shapes?
 cl <- mfuzz(expData,c=20,m=m1)
 
 #cluster sizes
@@ -686,10 +658,9 @@ mfuzz.plot(eset = expData,cl,min.mem = 0.5,mfrow = c(4,4),time.labels=timeLabels
 #get the genes in each cluster - cluster with the max membership value for each gene
 membership <- acore(expData,cl,0.5)
 membership_all<-bind_rows(membership, .id = "Cluster")
-write.csv(membership_all,"Figures/Clustering/MFuzz_no_imp_clusters.csv")
+write.csv(membership_all,"figures/Clustering/MFuzz_no_imp_clusters.csv")
 
 #plot the profile of a gene of interest or best fitting gene - could do one for each cluster
-#up then flat
 chosenCluster <- membership[[2]] 
 maxGene <- as.character(chosenCluster[which.max(chosenCluster$MEM.SHIP),"NAME"])
 
@@ -719,11 +690,9 @@ sex <- word(col_names,3,sep = "_")
 frac_filtered_norm_imp_time<-na.omit(as.data.frame(assay(expData)))
 
 #run non-smooth NMF with 2-6 clusters - 100 runs each initially
-#nsNMF method might result in more sparse meta-genes which could be more intepretable?
 estim.r <- nmf(frac_filtered_norm_imp_time, 2:6, nrun=200, seed=123,method = "lee")
 
 #plot cluster stability statistics to help choose the k
-#sometimes a little tricky to choose
 plot(estim.r)
 
 #k=4
@@ -735,130 +704,16 @@ summary(res)
 dev.new()
 consensusmap(res,annCol=data.frame("age"=age,"tissue"=tissue,"sex"=sex),tracks = c("basis:", "consensus:", "silhouette:"))
 dev.off()
-#test each cluster for association with the known variables? i.e are the clusters associated with tissue/age/sex?
 
 #plot the meta-genes and meta-samples
 coefmap(res)
 basismap(res)
 ```
 
-GSEA
----
-```{r,warning = FALSE, echo = FALSE, include=FALSE, error=FALSE}
-library(dplyr)
-library(tidyr)
-library(pRoloc)
-library(factoextra)
-library(rpgm)
-library(reshape2)
-library(org.Hs.eg.db)
-library(AnnotationDbi)
-library(clusterProfiler)
-library(NanoStringNCTools)
-library(GeomxTools)
-library(GeoMxWorkflows)
-library(gplots)
-library(Rtsne)
-library(writexl)
-library(biomaRt)
-
-source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/uniprot_dat_reading.R')
-source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/mapping_with_db_ortho.R')
-source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/mapping_with_files.R')
-source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/uniprot_selected_term_types.R')
-source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/utils.R')
-source('C:/Users/krams/Dropbox/CBF_projects/Shared_code/GO_enrichment_Emily/Simon/mapping_and_enrichment-main/mapping_and_enrichment-main/enrichment.R')
-```
-
-```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE, iclude=FALSE}
-#get the contribution of genes to each cluster - can do GSEA with GO
-geneRankings <- as.data.frame(basis(res))
-terms <- map_using_uniprot_files(input_id = 'UniProtKB-AC', input_values = rownames(geneRankings), output_id = 'GO')
-terms$names <- goIdToTerm(terms$GO, names = TRUE, keepNA = TRUE)
-
-V1<-geneRankings$V1[order(-geneRankings$V1)]
-names(V1)<-rownames(geneRankings[order(-geneRankings$V1),])
-
-ensembl <- useMart('ensembl', dataset="ecaballus_gene_ensembl")
-annotation <- getBM(attributes=c("uniprotsptrembl", "uniprot_gn_symbol"), filters="uniprotsptrembl", values=proteins, mart=ensembl)
-
-top <- data.frame(uniprot=names(V1)[1:5])
-top$cluster<-rep(c("Cluster1"),each=5)
-  
-gsea_results <- GSEA(geneList =V1,
-               exponent = 1,
-               minGSSize = 5,
-               maxGSSize = 500,
-               pvalueCutoff = 0.05,
-               pAdjustMethod = "BH",
-               TERM2GENE = terms[c(2,1)], 
-               TERM2NAME = terms[c(2,3)],
-               by = "fgsea")
-dotplot(gsea_results)
-save_plot(filename = "figures/Clustering/NMF_v1_GSEA_dot.png",plot = dotplot(gsea_results),base_height = 8,base_width = 11, bg="white", dpi=300)
-
-V2<-geneRankings$V2[order(-geneRankings$V2)]
-names(V2)<-rownames(geneRankings[order(-geneRankings$V2),])
-top_temp <- data.frame(uniprot=names(V2)[1:5])
-top_temp$cluster<-rep(c("Cluster2"),each=5)
-top<-rbind(top,top_temp)
-
-gsea_results_v2 <- GSEA(geneList =V2,
-               exponent = 1,
-               minGSSize = 5,
-               maxGSSize = 500,
-               pvalueCutoff = 0.05,
-               pAdjustMethod = "BH",
-               TERM2GENE = terms[c(2,1)], 
-               TERM2NAME = terms[c(2,3)],
-               by = "fgsea")
-dotplot(gsea_results_v2)
-save_plot(filename = "figures/Clustering/NMF_v2_GSEA_dot.png",plot = dotplot(gsea_results_v2),base_height = 8,base_width = 11, bg="white", dpi=300)
-
-V3<-geneRankings$V3[order(-geneRankings$V3)]
-names(V3)<-rownames(geneRankings[order(-geneRankings$V3),])
-top_temp <- data.frame(uniprot=names(V3)[1:5])
-top_temp$cluster<-rep(c("Cluster3"),each=5)
-top<-rbind(top,top_temp)
-
-gsea_results_v3 <- GSEA(geneList =V3,
-               exponent = 1,
-               minGSSize = 5,
-               maxGSSize = 500,
-               pvalueCutoff = 0.05,
-               pAdjustMethod = "BH",
-               TERM2GENE = terms[c(2,1)], 
-               TERM2NAME = terms[c(2,3)],
-               by = "fgsea")
-dotplot(gsea_results_v3)
-save_plot(filename = "figures/Clustering/NMF_v3_GSEA_dot.png",plot = dotplot(gsea_results_v3),base_height = 8,base_width = 11, bg="white", dpi=300)
-
-V4<-geneRankings$V4[order(-geneRankings$V4)]
-names(V4)<-rownames(geneRankings[order(-geneRankings$V4),])
-top_temp <- data.frame(uniprot=names(V4)[1:5])
-top_temp$cluster<-rep(c("Cluster4"),each=5)
-top<-rbind(top,top_temp)
-
-gsea_results_v4 <- GSEA(geneList =V4,
-               exponent = 1,
-               minGSSize = 5,
-               maxGSSize = 500,
-               pvalueCutoff = 0.05,
-               pAdjustMethod = "BH",
-               TERM2GENE = terms[c(2,1)], 
-               TERM2NAME = terms[c(2,3)],
-               by = "fgsea")
-dotplot(gsea_results_v4)
-save_plot(filename = "figures/Clustering/NMF_v4_GSEA_dot.png",plot = dotplot(gsea_results_v4),base_height = 8,base_width = 11, bg="white", dpi=300)
-
-
-top <- merge(top,annotation,by.x="uniprot",by.y="uniprotsptrembl",all.x="TRUE")
-knitr::kable(top, caption="Top 5 gene names per cluster")
-```
-
 Test association of clusters with variables
 ---
 ```{r, echo=FALSE}
+#test each cluster for association with the known variables? i.e are the clusters associated with tissue/age/sex?
 clusters<-as.data.frame(NMF::predict(res, what="consensus"))
 colnames(clusters) <- "cluster_no"
 clusters$cluster_no<-as.numeric(clusters$cluster_no)
@@ -918,10 +773,6 @@ col_names <- colnames(expData)
 age <- as.numeric(sapply(str_split(col_names,"_",3),"[",2))
 sex <- word(col_names,3,sep = "_")
 tissue <- word(col_names,1,sep = "_")
-
-#the higher age samples are adipose so might be tricky!
-#try adding variables to the model
-#lattice::stripplot(age~tissue)
 
 #add the variables to as factors
 dat$sex <- as.factor(sex)
@@ -1008,6 +859,6 @@ plotGeneProfile <- function(geneName,expressionData,age){
 }
 
 #example plots of protein abundance vs age
-#plotGeneProfile(proteins[1,"uniprot"],trainDat,trainAge)
-#plotGeneProfile(proteins[1,"uniprot"],testDat,testAge)
+plotGeneProfile(proteins[1,"uniprot"],trainDat,trainAge)
+plotGeneProfile(proteins[1,"uniprot"],testDat,testAge)
 ```
