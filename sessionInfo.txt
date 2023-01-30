@@ -1,0 +1,83 @@
+R version 4.2.1 (2022-06-23 ucrt)
+Platform: x86_64-w64-mingw32/x64 (64-bit)
+Running under: Windows 10 x64 (build 19045)
+
+Matrix products: default
+
+Random number generation:
+ RNG:     L'Ecuyer-CMRG 
+ Normal:  Inversion 
+ Sample:  Rejection 
+ 
+locale:
+[1] LC_COLLATE=English_United Kingdom.utf8  LC_CTYPE=English_United Kingdom.utf8   
+[3] LC_MONETARY=English_United Kingdom.utf8 LC_NUMERIC=C                           
+[5] LC_TIME=English_United Kingdom.utf8    
+
+attached base packages:
+ [1] parallel  tcltk     grid      stats4    stats     graphics  grDevices utils     datasets  methods  
+[11] base     
+
+other attached packages:
+ [1] plyr_1.8.8                  biomaRt_2.52.0              caret_6.0-93               
+ [4] lattice_0.20-45             glmnet_4.1-6                Matrix_1.5-3               
+ [7] RColorBrewer_1.1-3          doParallel_1.0.17           iterators_1.0.14           
+[10] foreach_1.5.2               NMF_0.25                    cluster_2.1.4              
+[13] rngtools_1.5.2              registry_0.5-1              Mfuzz_2.56.0               
+[16] DynDoc_1.74.0               widgetTools_1.74.0          e1071_1.7-12               
+[19] dendextend_1.16.0           dtwclust_5.5.11             dtw_1.23-1                 
+[22] proxy_0.4-27                patchwork_1.1.2             factoextra_1.0.7           
+[25] VIM_6.2.2                   colorspace_2.0-3            mice_3.15.0                
+[28] forcats_0.5.2               stringr_1.5.0               readr_2.1.3                
+[31] tibble_3.1.8                tidyverse_1.3.2             SummarizedExperiment_1.26.1
+[34] GenomicRanges_1.48.0        GenomeInfoDb_1.32.4         IRanges_2.30.1             
+[37] S4Vectors_0.34.0            MatrixGenerics_1.8.1        matrixStats_0.63.0         
+[40] purrr_1.0.1                 DEP_1.18.0                  cowplot_1.1.1              
+[43] pheatmap_1.0.12             dplyr_1.0.10                tidyr_1.2.1                
+[46] ggplot2_3.4.0               Biobase_2.56.0              BiocGenerics_0.42.0        
+
+loaded via a namespace (and not attached):
+  [1] rappdirs_0.3.3         ModelMetrics_1.2.2.2   ragg_1.2.5             bit64_4.0.5           
+  [5] knitr_1.41             DelayedArray_0.22.0    data.table_1.14.6      rpart_4.1.19          
+  [9] KEGGREST_1.36.3        hardhat_1.2.0          RCurl_1.98-1.9         generics_0.1.3        
+ [13] preprocessCore_1.58.0  RSQLite_2.2.20         future_1.30.0          bit_4.0.5             
+ [17] tzdb_0.3.0             xml2_1.3.3             lubridate_1.9.0        httpuv_1.6.8          
+ [21] assertthat_0.2.1       viridis_0.6.2          gargle_1.2.1           gower_1.0.1           
+ [25] xfun_0.35              hms_1.1.2              evaluate_0.19          promises_1.2.0.1      
+ [29] progress_1.2.2         DEoptimR_1.0-11        fansi_1.0.3            dbplyr_2.2.1          
+ [33] readxl_1.4.1           DBI_1.1.3              htmlwidgets_1.6.1      reshape_0.8.9         
+ [37] googledrive_2.0.0      ellipsis_0.3.2         RSpectra_0.16-1        ggpubr_0.5.0          
+ [41] backports_1.4.1        gridBase_0.4-7         RcppParallel_5.1.6     vctrs_0.5.0           
+ [45] imputeLCMD_2.1         abind_1.4-5            cachem_1.0.6           withr_2.5.0           
+ [49] robustbase_0.95-0      checkmate_2.1.0        vcd_1.4-10             prettyunits_1.1.1     
+ [53] laeken_0.5.2           crayon_1.5.2           recipes_1.0.4          pkgconfig_2.0.3       
+ [57] labeling_0.4.2         nlme_3.1-161           ProtGenerics_1.28.0    nnet_7.3-18           
+ [61] globals_0.16.2         rlang_1.0.6            lifecycle_1.0.3        sandwich_3.0-2        
+ [65] filelock_1.0.2         affyio_1.66.0          BiocFileCache_2.4.0    modelr_0.1.10         
+ [69] cellranger_1.1.0       lmtest_0.9-40          carData_3.0-5          tkWidgets_1.74.0      
+ [73] boot_1.3-28.1          zoo_1.8-11             reprex_2.0.2           GlobalOptions_0.1.2   
+ [77] googlesheets4_1.0.1    png_0.1-8              viridisLite_0.4.1      rjson_0.2.21          
+ [81] mzR_2.30.0             bitops_1.0-7           shinydashboard_0.7.2   pROC_1.18.0           
+ [85] Biostrings_2.64.1      blob_1.2.3             shape_1.4.6            parallelly_1.34.0     
+ [89] rstatix_0.7.1          tmvtnorm_1.5           ggsignif_0.6.4         scales_1.2.1          
+ [93] memoise_2.0.1          magrittr_2.0.3         zlibbioc_1.42.0        compiler_4.2.1        
+ [97] pcaMethods_1.88.0      clue_0.3-63            cli_3.6.0              affy_1.74.0           
+[101] XVector_0.36.0         listenv_0.9.0          MASS_7.3-58.1          tidyselect_1.2.0      
+[105] vsn_3.64.0             stringi_1.7.8          textshaping_0.3.6      yaml_2.3.6            
+[109] norm_1.0-10.0          MALDIquant_1.22        ggrepel_0.9.2          tools_4.2.1           
+[113] timechange_0.2.0       future.apply_1.10.0    circlize_0.4.15        rstudioapi_0.14       
+[117] MsCoreUtils_1.8.0      gridExtra_2.3          prodlim_2019.11.13     farver_2.1.1          
+[121] mzID_1.34.0            digest_0.6.31          BiocManager_1.30.19    shiny_1.7.4           
+[125] flexclust_1.4-1        lava_1.7.1             Rcpp_1.0.9             car_3.1-1             
+[129] broom_1.0.2            later_1.3.0            ncdf4_1.20             AnnotationDbi_1.58.0  
+[133] httr_1.4.4             MSnbase_2.22.0         ComplexHeatmap_2.12.1  rvest_1.0.3           
+[137] XML_3.99-0.12          fs_1.5.2               ranger_0.14.1          splines_4.2.1         
+[141] sp_1.5-1               gmm_1.7                systemfonts_1.0.4      xtable_1.8-4          
+[145] jsonlite_1.8.4         BBmisc_1.13            timeDate_4022.108      modeltools_0.2-23     
+[149] ipred_0.9-13           R6_2.5.1               pillar_1.8.1           htmltools_0.5.4       
+[153] mime_0.12              glue_1.6.2             fastmap_1.1.0          DT_0.26               
+[157] BiocParallel_1.30.4    class_7.3-20           codetools_0.2-18       mvtnorm_1.1-3         
+[161] utf8_1.2.2             curl_5.0.0             shinyjs_2.1.0          survival_3.4-0        
+[165] limma_3.52.4           rmarkdown_2.19         munsell_0.5.0          GetoptLong_1.0.5      
+[169] GenomeInfoDbData_1.2.8 impute_1.70.0          haven_2.5.1            reshape2_1.4.4        
+[173] gtable_0.3.1 
